@@ -1,9 +1,9 @@
-import glob
 import os
 import trimesh
 import time
 import numpy as np
 from pathlib import Path
+import random
 
 from vggt.utils.load_fn import load_and_preprocess_images_square
 from vggt.utils.geometry import unproject_depth_map_to_point_map
@@ -17,7 +17,8 @@ if __name__ == "__main__":
     checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    depth_threshold = 0.5
+    n_frames = 5
+    depth_threshold = 1.0
     dataset_path = Path("data/eth3D/")
     outputs_path = Path("outputs/eth3D/")
     
@@ -43,7 +44,11 @@ if __name__ == "__main__":
         if not image_path_list:
             print(f"No images found in {image_dir}, skipping.")
             continue
-        images, _ = load_and_preprocess_images_square(image_path_list, img_load_resolution)
+
+        num_to_sample = min(len(image_path_list), n_frames) 
+        sampled_paths = random.sample(image_path_list, num_to_sample)
+
+        images, _ = load_and_preprocess_images_square(sampled_paths, img_load_resolution)
         images = images.to(device)
         
         # --- Start Inference Tracking ---
@@ -71,7 +76,9 @@ if __name__ == "__main__":
         filename = f"{scene.name}_pred.ply"    
         full_path = res_dir / filename
 
-        trimesh.PointCloud(points_3d, colors=points_rgb).export(full_path)        
+        trimesh.PointCloud(points_3d, colors=points_rgb).export(full_path)   
+
+        break     
 
     mean_duration = np.mean(inference_durations)
     mean_memory = np.mean(mem_useds)
