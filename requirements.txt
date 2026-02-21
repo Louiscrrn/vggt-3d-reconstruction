@@ -7,3 +7,6 @@ einops
 safetensors
 open3d
 imageio
+trimesh
+pycolmap
+psutil

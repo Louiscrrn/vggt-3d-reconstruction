@@ -5,6 +5,8 @@ import os
 import copy
 import numpy as np
 import trimesh
+import time
+import psutil
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
@@ -14,7 +16,7 @@ from vggt.utils.helper import create_pixel_coordinate_grid, randomly_limit_trues
 from vggt.dependency.np_to_pycolmap import batch_np_matrix_to_pycolmap_wo_track
 
 from vggt.models.vggt import VGGT
-from vggt.utils.utils_fn import *
+from utils import get_device_settings, get_autocast_args, synchronize_device, get_gpu_memory_usage, empty_gpu_cache
 
 def load_vggt_model(checkpoint_path, device):
     model = VGGT()
@@ -145,34 +147,65 @@ def post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf) :
     return valid_points, valid_colors
 
 if __name__ == "__main__":
-
-    path = "models/vanilla.pt"
+    # Configuration
+    checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    batch = 10
-    path_list = "examples/llff_fern/"
+    n_frames = 7
+    path_list = "data/examples/llff_fern"
     scene_dir = "outputs/"
     dump_name = "flower"
     
     device, dtype = get_device_settings()
-    print(f"Device : {device}")
+    print(f"Device: {device}")
 
-    model = load_vggt_model(path, device)
-    print("Model sucessfully loaded", device)
+    # Load Model
+    model = load_vggt_model(checkpoint_path, device)
+    print(f"Model successfully loaded on {device}")
 
+    # Load and Preprocess Images
     image_dir = os.path.join(path_list, "images")
     image_path_list = glob.glob(os.path.join(image_dir, "*"))
     images, original_coords = load_and_preprocess_images_square(image_path_list, img_load_resolution)
-    images = images.to(device)
-    images = images[:batch]
+    
+    images = images.to(device)[:n_frames]
     original_coords = original_coords.to(device)
     print(f"Loaded {images.shape} images from {image_dir}")
 
+    # --- Start Inference Tracking ---
+    empty_gpu_cache(device)
+    mem_before = get_gpu_memory_usage(device)
+    
+    start_time = time.time()
+
+    # Inference
     extrinsic, intrinsic, depth_map, depth_conf = run_VGGT(model, images, dtype, vggt_fixed_resolution)
+    
+    # Crucial for accurate timing on GPU
+    synchronize_device(device)
+    
+    end_time = time.time()
+    mem_after = get_gpu_memory_usage(device)
+    # --- End Inference Tracking ---
+
+    # Post-processing
     points_3d = unproject_depth_map_to_point_map(depth_map, extrinsic, intrinsic)
     points_3d, points_rgb = post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf)
    
+    # Export
     os.makedirs(scene_dir, exist_ok=True)
-    filepath = scene_dir + f"{dump_name}_points.ply"
-    trimesh.PointCloud(points_3d, colors=points_rgb).export(os.path.join(scene_dir, filepath))
-    print(f"File saved in : {filepath}")
+    filename = f"{dump_name}_n{images.shape[0]}_{device.type}.ply"    
+    full_path = os.path.join(scene_dir, filename)
+    trimesh.PointCloud(points_3d, colors=points_rgb).export(full_path)
+    
+    # Results Printing
+    inference_duration = end_time - start_time
+    mem_used = mem_after - mem_before
+    
+    print("-" * 30)
+    print(f"Inference Results:")
+    print(f"Execution time: {inference_duration:.4f} s")
+    if device.type in ["cuda", "mps"]:
+        print(f"Allocated GPU memory: {mem_used:.2f} MB")
+    print(f"File saved in: {full_path}")
+    print("-" * 30)
