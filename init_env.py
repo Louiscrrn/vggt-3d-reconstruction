@@ -1,7 +1,7 @@
 import os
 import argparse
-import torch
 from huggingface_hub import hf_hub_download, snapshot_download
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
 def run_init(hf_token, model_repo, model_file, models_dir, dataset_repo, data_dir):
     """
