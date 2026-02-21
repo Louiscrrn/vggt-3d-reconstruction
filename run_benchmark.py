@@ -17,7 +17,7 @@ if __name__ == "__main__":
     checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    n_frames = 5
+    n_frames = 10
     depth_threshold = 1.0
     dataset_path = Path("data/eth3D/")
     outputs_path = Path("outputs/eth3D/")
@@ -77,8 +77,6 @@ if __name__ == "__main__":
         full_path = res_dir / filename
 
         trimesh.PointCloud(points_3d, colors=points_rgb).export(full_path)   
-
-        break     
 
     mean_duration = np.mean(inference_durations)
     mean_memory = np.mean(mem_useds)
