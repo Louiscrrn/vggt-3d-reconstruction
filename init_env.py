@@ -22,7 +22,6 @@ def run_init(hf_token, model_repo, model_file, models_dir, dataset_repo, data_di
                 repo_id=model_repo,
                 filename=model_file,
                 local_dir=models_dir,
-                local_dir_use_symlinks=False,
                 token=hf_token
             )
             print(f"Model successfully saved in {models_dir}/")
@@ -38,7 +37,6 @@ def run_init(hf_token, model_repo, model_file, models_dir, dataset_repo, data_di
             repo_id=dataset_repo,
             repo_type="dataset",
             local_dir=data_dir,
-            local_dir_use_symlinks=False,
             token=hf_token
         )
         print(f"Dataset successfully saved in {data_dir}/")
