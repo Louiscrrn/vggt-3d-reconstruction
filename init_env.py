@@ -37,7 +37,8 @@ def run_init(hf_token, model_repo, model_file, models_dir, dataset_repo, data_di
             repo_id=dataset_repo,
             repo_type="dataset",
             local_dir=data_dir,
-            token=hf_token
+            token=hf_token,
+            max_workers=64
         )
         print(f"Dataset successfully saved in {data_dir}/")
     except Exception as e:
