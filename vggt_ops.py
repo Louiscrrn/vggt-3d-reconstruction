@@ -43,10 +43,10 @@ def run_VGGT(model, images, dtype, resolution=518):
     depth_conf = depth_conf.squeeze(0).cpu().numpy()
     return extrinsic, intrinsic, depth_map, depth_conf
 
-def post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf) :
+def post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf, depth_threshold=5.0) :
     points_rgb = F.interpolate(images, size=(vggt_fixed_resolution, vggt_fixed_resolution), mode="bilinear")
     colors = (points_rgb.cpu().numpy() * 255).astype(np.uint8).transpose(0, 2, 3, 1)
-    mask = depth_conf > 5.0 
+    mask = depth_conf > depth_threshold
     valid_points = points_3d[mask]
     valid_colors = colors[mask]
 

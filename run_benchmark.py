@@ -17,8 +17,9 @@ if __name__ == "__main__":
     checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    dataset_path = Path("data/eth3d_clean/")
-    outputs_path = Path("outputs/eth3d/")
+    depth_threshold = 0.5
+    dataset_path = Path("data/eth3D/")
+    outputs_path = Path("outputs/eth3D/")
     
     device, dtype = get_device_settings()
     print(f"Device: {device}")
@@ -62,7 +63,7 @@ if __name__ == "__main__":
 
         # Post-processing
         points_3d = unproject_depth_map_to_point_map(depth_map, extrinsic, intrinsic)
-        points_3d, points_rgb = post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf)
+        points_3d, points_rgb = post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf, depth_threshold)
     
         # Export
         res_dir = outputs_path / scene.name
