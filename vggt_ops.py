@@ -43,11 +43,19 @@ def run_VGGT(model, images, dtype, resolution=518):
     depth_conf = depth_conf.squeeze(0).cpu().numpy()
     return extrinsic, intrinsic, depth_map, depth_conf
 
-def post_processing_pc(points_3d, images, vggt_fixed_resolution, depth_conf, depth_threshold=5.0) :
+def post_processing_pc(points_3d, images, depth_map, vggt_fixed_resolution, depth_conf, depth_threshold=5.0) :
+    
     points_rgb = F.interpolate(images, size=(vggt_fixed_resolution, vggt_fixed_resolution), mode="bilinear")
     colors = (points_rgb.cpu().numpy() * 255).astype(np.uint8).transpose(0, 2, 3, 1)
-    mask = depth_conf > depth_threshold
+    
+    conf_mask = (depth_conf > depth_threshold)
+    mask = conf_mask 
+
+    valid_depths = depth_map.squeeze(-1).copy()
+    valid_depths[~mask] = 0
     valid_points = points_3d[mask]
     valid_colors = colors[mask]
 
-    return valid_points, valid_colors
+    print(f"Survivants Finaux: {np.sum(mask)} points")
+
+    return valid_points, valid_colors, valid_depths
