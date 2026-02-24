@@ -8,6 +8,26 @@ def load_eth3d_depth(path):
     size = depth.shape[0]
     return 0
 
+def get_eth3d_mask(mask_path, target_size=518) :
+    mask = Image.open(mask_path).convert("L")
+    width, height = mask.size
+        
+    max_dim = max(width, height)
+    left = (max_dim - width) // 2
+    top = (max_dim - height) // 2
+        
+    square_mask = Image.new("L", (max_dim, max_dim), 0)
+    square_mask.paste(mask, (left, top))
+        
+    square_mask = square_mask.resize(
+    (target_size, target_size),
+            Image.Resampling.NEAREST
+    )
+        
+    mask_array = np.array(square_mask, dtype=np.uint8)
+    return mask_array
+
+
 def preprocess_eth3d_masks(mask_path_list, target_size=518):
     processed_masks = []
     
