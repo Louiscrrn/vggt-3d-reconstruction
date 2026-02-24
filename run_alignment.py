@@ -188,8 +188,6 @@ if __name__ == "__main__":
         if not scene_pred_dir.is_dir():
             continue
 
-        scene_name      = "office"
-        scene_pred_dir  = preds_path / scene_name
         scene_name      = scene_pred_dir.name
         gt_scene_path   = dataset_path / scene_name
         pred_scene_path = preds_path   / scene_name
@@ -199,6 +197,7 @@ if __name__ == "__main__":
 
         all_gt_points = []
         all_pred_points = []
+        scene_data = []
         frames = [f.stem for f in sorted(pm_dir.glob("*.npy"))]
         for frame in frames:
 
@@ -216,6 +215,7 @@ if __name__ == "__main__":
 
             # Compute the metrics
             hist = compute_metrics(gt_pm, pred_pm_aligned, gt_depth, conf, conf_threshold, frame, scene_name)
+            scene_data.append(hist)
             data.append(hist)
 
             gt_pts_frame, pred_pts_frame = extract_points_from_pm(
@@ -225,18 +225,16 @@ if __name__ == "__main__":
             all_pred_points.append(pred_pts_frame)
 
             # Visualisation
-            show_pointmaps_comparison_o3d(
-                gt_pm, pred_pm_aligned, gt_depth, conf,
-                conf_threshold=conf_threshold,
-            )
+            #show_pointmaps_comparison_o3d(
+            #    gt_pm, pred_pm_aligned, gt_depth, conf,
+            #    conf_threshold=conf_threshold,
+            #)
 
-        df_metrics = pd.DataFrame(data)
-        
-        acc = df_metrics["Acc"].mean()
-        comp = df_metrics["Comp"].mean()
-        overall = df_metrics["Overall"].mean()
-
-        print(f"Acc.↓ {acc:.4f} | Comp.↓ {comp:.4f} | Overall↓ {overall:.4f}")
+        df_scene = pd.DataFrame(scene_data)
+        s_acc = df_scene["Acc"].mean()
+        s_comp = df_scene["Comp"].mean()
+        s_ov = df_scene["Overall"].mean()
+        print(f"Scene {scene_name} - Acc.↓ {s_acc:.4f} | Comp.↓ {s_comp:.4f} | Overall↓ {s_ov:.4f}")
 
         # Concatenate and export
         gt_scene_pts = np.concatenate(all_gt_points, axis=0)
@@ -253,12 +251,12 @@ if __name__ == "__main__":
                 color_rgb=[255, 0, 0],  
             )
     
-    df_metrics = pd.DataFrame(data)
+    df_final = pd.DataFrame(data)
+    total_acc = df_final["Acc"].mean()
+    total_comp = df_final["Comp"].mean()
+    total_ov = df_final["Overall"].mean()
 
-    acc = df_metrics["Acc"].mean()
-    comp = df_metrics["Comp"].mean()
-    overall = df_metrics["Overall"].mean()
-
-    print(f"="*80)
-    print(f"Acc.↓ {acc:.4f} | Comp.↓ {comp:.4f} | Overall↓ {overall:.4f}")
-    print(f"="*80)
+    print(f"\n" + "="*80)
+    print(f"GLOBAL SCORE (All scenes combined)")
+    print(f"Acc.↓ {total_acc:.4f} | Comp.↓ {total_comp:.4f} | Overall↓ {total_ov:.4f}")
+    print("="*80)
