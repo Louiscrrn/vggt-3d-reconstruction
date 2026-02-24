@@ -183,6 +183,7 @@ if __name__ == "__main__":
     preds_path   = Path("outputs/eth3D_local/")
     conf_threshold = 0.5
 
+    data = []
     for scene_pred_dir in sorted(preds_path.iterdir()):
         if not scene_pred_dir.is_dir():
             continue
@@ -196,7 +197,6 @@ if __name__ == "__main__":
 
         print(f"# Scene: {scene_name}")    
 
-        data = []
         all_gt_points = []
         all_pred_points = []
         frames = [f.stem for f in sorted(pm_dir.glob("*.npy"))]
@@ -252,3 +252,13 @@ if __name__ == "__main__":
                 pred_scene_path / f"{scene_name}_pred.ply",
                 color_rgb=[255, 0, 0],  
             )
+    
+    df_metrics = pd.DataFrame(data)
+
+    acc = df_metrics["Acc"].mean()
+    comp = df_metrics["Comp"].mean()
+    overall = df_metrics["Overall"].mean()
+
+    print(f"="*80)
+    print(f"Acc.↓ {acc:.4f} | Comp.↓ {comp:.4f} | Overall↓ {overall:.4f}")
+    print(f"="*80)
