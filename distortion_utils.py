@@ -309,7 +309,6 @@ def get_maps_depths(frame, gt_scene_path, pred_scene_path) :
         extr_w2c[None, ...],                        # (1,3,4) world->cam
         K_518[None, ...],                           # (1,3,3)
     )
-    print("pm_gt_world:", pm_gt_world.shape)  # (1,H,W,3)
 
     return pm_gt_world, depth_und_518, pred_pm, pred_depth
 

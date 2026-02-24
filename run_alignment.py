@@ -1,21 +1,14 @@
 from pathlib import Path
 import numpy as np
-from distortion_utils import get_maps_depths, show_pointmap_o3d
+from distortion_utils import get_maps_depths
 import open3d as o3d
+import pandas as pd
+import trimesh
 
-
-# ─────────────────────────────────────────────────────────────
-# Confidence
-# ─────────────────────────────────────────────────────────────
 
 def load_confidence(frame: str, pred_scene_path: Path) -> np.ndarray:
     conf_path = pred_scene_path / "confidence" / f"{frame}.npy"
     return np.squeeze(np.load(conf_path).astype(np.float32))
-
-
-# ─────────────────────────────────────────────────────────────
-# Umeyama
-# ─────────────────────────────────────────────────────────────
 
 def umeyama_alignment(src: np.ndarray, dst: np.ndarray, with_scale: bool = True):
     """
@@ -51,11 +44,6 @@ def umeyama_alignment(src: np.ndarray, dst: np.ndarray, with_scale: bool = True)
 
     return R, t, s, T
 
-
-# ─────────────────────────────────────────────────────────────
-# Alignement
-# ─────────────────────────────────────────────────────────────
-
 def align_pointmap(pred_pm, gt_pm, gt_depth, conf,
                    conf_threshold=0.5, with_scale=True):
     """
@@ -77,8 +65,8 @@ def align_pointmap(pred_pm, gt_pm, gt_depth, conf,
     valid     = mask_gt & mask_pred
 
     n_valid = valid.sum()
-    print(f"  Pixels valides Umeyama : {n_valid}/{valid.size} "
-          f"(GT={mask_gt.sum()}, conf≥{conf_threshold}={mask_pred.sum()})")
+    #print(f"  Pixels valides Umeyama : {n_valid}/{valid.size} "
+    #      f"(GT={mask_gt.sum()}, conf≥{conf_threshold}={mask_pred.sum()})")
     if n_valid < 10:
         raise RuntimeError(f"Pas assez de correspondances : {n_valid}")
 
@@ -86,7 +74,7 @@ def align_pointmap(pred_pm, gt_pm, gt_depth, conf,
     dst_pts = gt_pm[valid]
 
     _, _, s, T = umeyama_alignment(src_pts, dst_pts, with_scale=with_scale)
-    print(f"  Scale estimé : {s:.4f}")
+    #print(f"  Scale estimé : {s:.4f}")
 
     H, W, _ = pred_pm.shape
     pts_h   = np.hstack([pred_pm.reshape(-1, 3),
@@ -95,153 +83,16 @@ def align_pointmap(pred_pm, gt_pm, gt_depth, conf,
 
     return aligned.reshape(H, W, 3), T
 
+def make_pcd(pm, mask, color):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pm[mask])
+        pcd.paint_uniform_color(color)
+        return pcd
 
-# ─────────────────────────────────────────────────────────────
-# Métriques  (pixel-wise + NN-based)
-# ─────────────────────────────────────────────────────────────
+def process_pm(gt_pm, pred_pm, gt_depth, conf, conf_threshold=0.5) :
 
-def compute_metrics(pred_pm_aligned: np.ndarray,
-                    gt_pm: np.ndarray,
-                    gt_depth: np.ndarray,
-                    conf: np.ndarray,
-                    conf_threshold: float = 0.5,
-                    thresholds: tuple = (0.05, 0.10, 0.20)):
-    """
-    Calcule accuracy et complétude après alignement.
-
-    • Accuracy  : pour chaque point PRED valide, distance au point GT
-                  correspondant (pixel-wise). Fraction en dessous du seuil τ.
-    • Complétude: pour chaque point GT valide, distance au point PRED aligné
-                  le plus proche (NN dans o3d). Fraction en dessous de τ.
-    • Mean / Median / RMSE sur les distances pixel-wise (pixels valides des deux).
-
-    Args:
-        pred_pm_aligned : (H,W,3)  pointmap prédit aligné (monde)
-        gt_pm           : (...,H,W,3)
-        gt_depth        : (...,H,W)
-        conf            : (H,W)
-        conf_threshold  : seuil confiance
-        thresholds      : seuils (en mètres) pour acc/completude
-
-    Returns: dict de métriques
-    """
-    pred_pm_aligned = np.squeeze(pred_pm_aligned).astype(np.float32)
-    gt_pm           = np.squeeze(gt_pm).astype(np.float32)
-    gt_depth        = np.squeeze(gt_depth).astype(np.float32)
-    conf            = np.squeeze(conf).astype(np.float32)
-
-    mask_gt   = np.isfinite(gt_depth) & (gt_depth > 0)
-    mask_pred = ((conf >= conf_threshold)
-                 & np.isfinite(pred_pm_aligned[..., 0])
-                 & np.isfinite(pred_pm_aligned[..., 1])
-                 & np.isfinite(pred_pm_aligned[..., 2]))
-
-    # ── Accuracy pixel-wise (pixels valides dans les deux) ──────────────
-    valid_both = mask_gt & mask_pred
-    diff       = pred_pm_aligned[valid_both] - gt_pm[valid_both]   # (N,3)
-    dist_pw    = np.linalg.norm(diff, axis=1)                      # (N,)
-
-    metrics = {
-        "n_valid_both" : int(valid_both.sum()),
-        "n_gt_valid"   : int(mask_gt.sum()),
-        "n_pred_valid" : int(mask_pred.sum()),
-        "mean_err"     : float(dist_pw.mean()),
-        "median_err"   : float(np.median(dist_pw)),
-        "rmse"         : float(np.sqrt(np.mean(dist_pw ** 2))),
-    }
-
-    for τ in thresholds:
-        metrics[f"acc@{τ:.2f}m"] = float((dist_pw < τ).mean() * 100)
-
-    # ── Complétude NN (o3d KD-tree) ──────────────────────────────────────
-    #   Pour chaque point GT, distance au pred aligné le plus proche
-    pred_pts = pred_pm_aligned[mask_pred]   # (M,3)
-    gt_pts   = gt_pm[mask_gt]               # (K,3)
-
-    pcd_pred = o3d.geometry.PointCloud()
-    pcd_pred.points = o3d.utility.Vector3dVector(pred_pts)
-    tree = o3d.geometry.KDTreeFlann(pcd_pred)
-
-    dist_comp = np.empty(len(gt_pts), dtype=np.float32)
-    for i, pt in enumerate(gt_pts):
-        _, _, d2 = tree.search_knn_vector_3d(pt, 1)
-        dist_comp[i] = np.sqrt(d2[0])
-
-    for τ in thresholds:
-        metrics[f"comp@{τ:.2f}m"] = float((dist_comp < τ).mean() * 100)
-
-    metrics["mean_comp_err"]   = float(dist_comp.mean())
-    metrics["median_comp_err"] = float(np.median(dist_comp))
-
-    return metrics
-
-
-def print_metrics_table(all_metrics: dict,
-                        thresholds: tuple = (0.05, 0.10, 0.20)):
-    """
-    Affiche un tableau récap par frame puis les moyennes globales.
-
-    all_metrics : { frame_name : metrics_dict }
-    """
-    τ_labels_acc  = [f"acc@{τ:.2f}m"  for τ in thresholds]
-    τ_labels_comp = [f"comp@{τ:.2f}m" for τ in thresholds]
-
-    col_keys = (["mean_err", "median_err", "rmse"]
-                + τ_labels_acc
-                + ["mean_comp_err", "median_comp_err"]
-                + τ_labels_comp)
-
-    col_heads = (["mean↓", "med↓", "rmse↓"]
-                 + [f"acc%@{τ:.2f}↑" for τ in thresholds]
-                 + ["c.mean↓", "c.med↓"]
-                 + [f"cmp%@{τ:.2f}↑" for τ in thresholds])
-
-    # Largeurs colonnes
-    frame_w = max(len(k) for k in all_metrics) + 2
-    col_w   = [max(len(h), 9) + 1 for h in col_heads]
-
-    sep  = "─" * (frame_w + sum(col_w) + len(col_w) + 1)
-    fmt_h = f"{'Frame':<{frame_w}}" + "".join(f" {h:>{w}}" for h, w in zip(col_heads, col_w))
-    fmt_f = (lambda name, m:
-             f"{name:<{frame_w}}"
-             + "".join(
-                 f" {m.get(k, float('nan')):>{w}.3f}"
-                 if "%" not in k else
-                 f" {m.get(k, float('nan')):>{w}.1f}"
-                 for k, w in zip(col_keys, col_w)
-             ))
-
-    print(f"\n{'═'*len(sep)}")
-    print(f"{'MÉTRIQUES PAR FRAME':^{len(sep)}}")
-    print(f"{'═'*len(sep)}")
-    print(fmt_h)
-    print(sep)
-
-    for frame_name, m in all_metrics.items():
-        print(fmt_f(frame_name, m))
-
-    # ── Moyennes globales ──
-    if len(all_metrics) > 1:
-        avg = {}
-        for k in col_keys:
-            vals = [m[k] for m in all_metrics.values() if k in m]
-            avg[k] = float(np.mean(vals)) if vals else float("nan")
-        print(sep)
-        print(fmt_f("MOYENNE", avg))
-
-    print(f"{'═'*len(sep)}\n")
-
-
-# ─────────────────────────────────────────────────────────────
-# Visualisation
-# ─────────────────────────────────────────────────────────────
-
-def show_pointmaps_comparison_o3d(gt_pm, pred_pm, gt_depth, conf,
-                                   conf_threshold=0.5):
     gt_pm    = np.squeeze(gt_pm).astype(np.float32)
     pred_pm  = np.squeeze(pred_pm).astype(np.float32)
-    gt_depth = np.squeeze(gt_depth).astype(np.float32)
-    conf     = np.squeeze(conf).astype(np.float32)
 
     mask_gt   = np.isfinite(gt_depth) & (gt_depth > 0)
     mask_pred = ((conf >= conf_threshold)
@@ -249,31 +100,88 @@ def show_pointmaps_comparison_o3d(gt_pm, pred_pm, gt_depth, conf,
                  & np.isfinite(pred_pm[..., 1])
                  & np.isfinite(pred_pm[..., 2]))
 
-    def make_pcd(pm, mask, color):
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(pm[mask])
-        pcd.paint_uniform_color(color)
-        return pcd
+    pcd_gt = make_pcd(gt_pm,  mask_gt,   [0.0, 0.8, 0.0])
+    pcd_pm = make_pcd(pred_pm, mask_pred, [0.8, 0.1, 0.1])
+
+    return pcd_gt, pcd_pm
+
+def show_pointmaps_comparison_o3d(gt_pm, pred_pm, gt_depth, conf,
+                                   conf_threshold=0.5):
+    
+    pcd_gt, pcd_pm = process_pm(gt_pm, pred_pm, gt_depth, conf, conf_threshold)
 
     o3d.visualization.draw_geometries(
-        [make_pcd(gt_pm,  mask_gt,   [0.0, 0.8, 0.0]),
-         make_pcd(pred_pm, mask_pred, [0.8, 0.1, 0.1])],
+        [pcd_gt,pcd_pm],
         window_name="GT (vert) vs Pred alignée (rouge)",
         width=1280, height=720,
     )
 
+def compute_metrics(pm_gt, pm_pred, gt_depth, conf, conf_threshold, frame, scene) :
 
-# ─────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────
+    pcd_gt, pcd_pred = process_pm(pm_gt, pm_pred, gt_depth, conf, conf_threshold)
 
-CONF_THRESHOLD = 0.5
-THRESHOLDS     = (0.05, 0.10, 0.20)   # mètres
+    dists_acc = np.asarray(pcd_pred.compute_point_cloud_distance(pcd_gt))
+    dists_comp = np.asarray(pcd_gt.compute_point_cloud_distance(pcd_pred))
+
+    acc = float(dists_acc.mean()) if len(dists_acc) > 0 else np.nan
+    comp = float(dists_comp.mean()) if len(dists_comp) > 0 else np.nan
+    overall = float(0.5 * (acc + comp)) if np.isfinite(acc) and np.isfinite(comp) else np.nan
+
+    return {"Acc" : acc, "Comp" : comp, "Overall" : overall, "Frame" : frame, "Scene" : scene}
+
+def extract_points_from_pm(gt_pm, pred_pm, gt_depth, conf, conf_threshold=0.5):
+    """
+    Retourne deux arrays (N,3):
+    - gt_pts
+    - pred_pts (déjà alignés si pred_pm est alignée)
+    """
+    gt_pm    = np.squeeze(gt_pm).astype(np.float32)
+    pred_pm  = np.squeeze(pred_pm).astype(np.float32)
+    gt_depth = np.squeeze(gt_depth).astype(np.float32)
+    conf     = np.squeeze(conf).astype(np.float32)
+
+    mask_gt = (
+        np.isfinite(gt_depth) & (gt_depth > 0) &
+        np.isfinite(gt_pm[..., 0]) & np.isfinite(gt_pm[..., 1]) & np.isfinite(gt_pm[..., 2])
+    )
+    mask_pred = (
+        (conf >= conf_threshold) &
+        np.isfinite(pred_pm[..., 0]) & np.isfinite(pred_pm[..., 1]) & np.isfinite(pred_pm[..., 2])
+    )
+
+    gt_pts = gt_pm[mask_gt]
+    pred_pts = pred_pm[mask_pred]
+    return gt_pts, pred_pts
+
+def save_pointcloud_ply_trimesh(points: np.ndarray, out_path: Path, color_rgb=None):
+    """
+    Sauvegarde un nuage de points en .ply via trimesh.
+    color_rgb: [R,G,B] optionnel (0-255), appliqué à tous les points
+    """
+    points = np.asarray(points, dtype=np.float32)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError(f"points doit être de forme (N,3), reçu {points.shape}")
+
+    if len(points) == 0:
+        raise ValueError("Nuage vide, rien à sauvegarder.")
+
+    kwargs = {}
+    if color_rgb is not None:
+        color = np.array(color_rgb, dtype=np.uint8).reshape(1, 3)
+        colors = np.repeat(color, len(points), axis=0)
+        kwargs["colors"] = colors
+
+    pc = trimesh.points.PointCloud(vertices=points, **kwargs)
+    pc.export(out_path)
+
+
+
 
 if __name__ == "__main__":
 
     dataset_path = Path("data/eth3D/")
     preds_path   = Path("outputs/eth3D_local/")
+    conf_threshold = 0.5
 
     for scene_pred_dir in sorted(preds_path.iterdir()):
         if not scene_pred_dir.is_dir():
@@ -286,48 +194,61 @@ if __name__ == "__main__":
         pred_scene_path = preds_path   / scene_name
         pm_dir          = scene_pred_dir / "pointmaps"
 
-        print(f"\n{'#'*60}")
-        print(f"# Scene: {scene_name}")
-        print(f"{'#'*60}")
+        print(f"# Scene: {scene_name}")    
 
-        all_frame_metrics = {}
-
+        data = []
+        all_gt_points = []
+        all_pred_points = []
         frames = [f.stem for f in sorted(pm_dir.glob("*.npy"))]
         for frame in frames:
-
-            print(f"\n  ── Frame: {frame} ──")
 
             gt_pm, gt_depth, pred_pm, pred_depth = get_maps_depths(
                 frame, gt_scene_path, pred_scene_path
             )
             conf = load_confidence(frame, pred_scene_path)
-            print(f"  Confiance — min:{conf.min():.3f}  max:{conf.max():.3f}  mean:{conf.mean():.3f}")
 
             # Alignement Umeyama
             pred_pm_aligned, T = align_pointmap(
                 pred_pm, gt_pm, gt_depth, conf,
-                conf_threshold=CONF_THRESHOLD,
+                conf_threshold=conf_threshold,
                 with_scale=True,
             )
 
-            # Métriques
-            metrics = compute_metrics(
-                pred_pm_aligned, gt_pm, gt_depth, conf,
-                conf_threshold=CONF_THRESHOLD,
-                thresholds=THRESHOLDS,
+            # Compute the metrics
+            hist = compute_metrics(gt_pm, pred_pm_aligned, gt_depth, conf, conf_threshold, frame, scene_name)
+            data.append(hist)
+
+            gt_pts_frame, pred_pts_frame = extract_points_from_pm(
+                gt_pm, pred_pm_aligned, gt_depth, conf, conf_threshold
             )
-            all_frame_metrics[frame] = metrics
+            all_gt_points.append(gt_pts_frame)
+            all_pred_points.append(pred_pts_frame)
 
             # Visualisation
-            #show_pointmap_o3d(gt_pm,   gt_depth)
-            #show_pointmap_o3d(pred_pm, pred_depth)
             show_pointmaps_comparison_o3d(
                 gt_pm, pred_pm_aligned, gt_depth, conf,
-                conf_threshold=CONF_THRESHOLD,
+                conf_threshold=conf_threshold,
             )
 
+        df_metrics = pd.DataFrame(data)
+        
+        acc = df_metrics["Acc"].mean()
+        comp = df_metrics["Comp"].mean()
+        overall = df_metrics["Overall"].mean()
 
-        # Tableau récap de la scène
-        print_metrics_table(all_frame_metrics, thresholds=THRESHOLDS)
+        print(f"Acc.↓ {acc:.4f} | Comp.↓ {comp:.4f} | Overall↓ {overall:.4f}")
 
-        break
+        # Concatenate and export
+        gt_scene_pts = np.concatenate(all_gt_points, axis=0)
+        pred_scene_pts = np.concatenate(all_pred_points, axis=0)
+
+        save_pointcloud_ply_trimesh(
+                gt_scene_pts,
+                pred_scene_path / f"{scene_name}_gt.ply",
+                color_rgb=[0, 255, 0],   
+            )
+        save_pointcloud_ply_trimesh(
+                pred_scene_pts,
+                pred_scene_path / f"{scene_name}_pred.ply",
+                color_rgb=[255, 0, 0],  
+            )

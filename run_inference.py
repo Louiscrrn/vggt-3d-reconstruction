@@ -18,7 +18,7 @@ if __name__ == "__main__":
     checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    n_frames = 7
+    n_frames = 5
     depth_threshold = 1.0
     dataset_path = Path("data/eth3D/")
     outputs_path = Path("outputs/eth3D_local/")
@@ -37,14 +37,10 @@ if __name__ == "__main__":
         if scene.name.startswith('.'):
             continue
             
-        #### FOR THE TEST
-        target_scene_name = "office"
-        scene = dataset_path / target_scene_name
-
         print(f"\nProcessing scene: {scene.name}")
 
         # Load and Preprocess Images
-        image_dir = scene / "undistorded_images"
+        image_dir = scene / "undistorded_images/images" 
         image_path_list = [str(f) for f in image_dir.iterdir() if not f.name.startswith('.')]
         if not image_path_list:
             print(f"No images found in {image_dir}, skipping.")
@@ -111,7 +107,6 @@ if __name__ == "__main__":
                 d_img = np.zeros_like(depths[i], dtype=np.uint8)
             Image.fromarray(d_img).save(res_dir / "depths" / f"{img_name}.jpg")
 
-        break  
 
     mean_duration = np.mean(inference_durations)
     mean_memory = np.mean(mem_useds)
