@@ -58,7 +58,7 @@ if __name__ == "__main__":
         "model_repo": "facebook/VGGT-1B",
         "model_file": "model.pt",
         "models_dir": "models",
-        "dataset_repo": "Uniiii/eth3d",
+        "dataset_repo": "Uniiii/eth3d_v2",
         "data_dir": os.path.join("data", "eth3D")
     }
 
