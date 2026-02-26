@@ -181,7 +181,7 @@ if __name__ == "__main__":
 
     dataset_path = Path("data/eth3D/")
     preds_path   = Path("outputs/eth3D_local/")
-    conf_threshold = 0.5
+    conf_threshold = 1.0
 
     data = []
     for scene_pred_dir in sorted(preds_path.iterdir()):

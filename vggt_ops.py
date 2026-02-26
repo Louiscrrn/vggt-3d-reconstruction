@@ -12,10 +12,10 @@ def load_vggt_model(checkpoint_path, device):
     state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)
     
     model.load_state_dict(state_dict)
-    model.to(device)
+    model.to(device, dtype=torch.bfloat16)
     return model
 
-def run_VGGT(model, images, dtype, resolution=518):
+def run_VGGT(model, images, resolution=518):
     # images: [B, 3, H, W]
 
     assert len(images.shape) == 4

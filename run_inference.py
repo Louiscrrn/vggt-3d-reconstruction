@@ -66,7 +66,8 @@ if __name__ == "__main__":
         start_time = time.time()
 
         # Inference
-        extrinsic, intrinsic, depth_map, depth_conf = run_VGGT(model, images, dtype, vggt_fixed_resolution)
+        with torch.no_grad():
+            extrinsic, intrinsic, depth_map, depth_conf = run_VGGT(model, images, vggt_fixed_resolution)
 
         # --- End Inference Tracking ---
         synchronize_device(device)
