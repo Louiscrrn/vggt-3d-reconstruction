@@ -87,7 +87,7 @@ def get_autocast_args(device):
     if device.type == "cuda":
         return {
             "device_type": "cuda",
-            "dtype": torch.bfloat16,
+            "dtype": torch.float16,
             "enabled": True,
         }
 
