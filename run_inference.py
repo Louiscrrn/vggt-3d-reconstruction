@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 import random
 from PIL import Image
+import torch
 
 from vggt.utils.load_fn import load_and_preprocess_images_square
 from vggt.utils.geometry import unproject_depth_map_to_point_map
@@ -18,7 +19,7 @@ if __name__ == "__main__":
     checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    n_frames = 5
+    n_frames = 2
     depth_threshold = 1.0
     dataset_path = Path("data/eth3D/")
     outputs_path = Path("outputs/eth3D_local/")
@@ -59,7 +60,9 @@ if __name__ == "__main__":
 
         # --- Start Inference Tracking ---
         empty_gpu_cache(device)
-        mem_before = get_gpu_memory_usage(device)
+        if device.type == "cuda" :
+            torch.cuda.reset_peak_memory_stats(device)
+
         start_time = time.time()
 
         # Inference
@@ -68,9 +71,13 @@ if __name__ == "__main__":
         # --- End Inference Tracking ---
         synchronize_device(device)
         end_time = time.time()
-        mem_after = get_gpu_memory_usage(device)
         inference_durations.append(end_time - start_time)
-        mem_useds.append(mem_after - mem_before)
+        if device.type == "cuda" :
+            peak_mem_bytes = torch.cuda.max_memory_allocated(device) 
+            peak_mem_mb = peak_mem_bytes / (1024 ** 2)
+        else :
+            peak_mem_mb = 0.0
+        mem_useds.append(peak_mem_mb)
 
         # Post-processing
         pointmaps = unproject_depth_map_to_point_map(depth_map, extrinsic, intrinsic)
