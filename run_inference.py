@@ -4,7 +4,6 @@ import time
 import numpy as np
 from pathlib import Path
 import random
-from PIL import Image
 import torch
 
 from vggt.utils.load_fn import load_and_preprocess_images_square
@@ -19,7 +18,7 @@ if __name__ == "__main__":
     checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    n_frames = 2
+    n_frames = 5
     depth_threshold = 1.0
     dataset_path = Path("data/eth3D/")
     outputs_path = Path("outputs/eth3D_local/")
@@ -57,6 +56,7 @@ if __name__ == "__main__":
 
         images, _ = load_and_preprocess_images_square(sampled_paths, img_load_resolution)
         images = images.to(device)
+        
 
         # --- Start Inference Tracking ---
         empty_gpu_cache(device)
@@ -82,7 +82,6 @@ if __name__ == "__main__":
 
         # Post-processing
         pointmaps = unproject_depth_map_to_point_map(depth_map, extrinsic, intrinsic)
-        print(f"Pointmaps shape: {pointmaps.shape}")
 
         points_3d, points_rgb, depths = post_processing_pc(pointmaps.copy(), images, depth_map, vggt_fixed_resolution, masks, depth_conf, depth_threshold)
 
@@ -107,13 +106,7 @@ if __name__ == "__main__":
             np.save(conf_dir / f"{img_name}.npy", depth_conf[i].astype(np.float32))
             np.save(extr_dir / f"{img_name}.npy", extrinsic[i])
             np.save(intr_dir / f"{img_name}.npy", intrinsic[i])
-
-            d_max = depths[i].max()
-            if d_max > 0:
-                d_img = (depths[i] / d_max * 255).astype(np.uint8)
-            else:
-                d_img = np.zeros_like(depths[i], dtype=np.uint8)
-            Image.fromarray(d_img).save(res_dir / "depths" / f"{img_name}.jpg")
+            np.save(depth_dir / f"{img_name}.npy", depths[i]) 
 
 
     mean_duration = np.mean(inference_durations)
