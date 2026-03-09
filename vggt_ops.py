@@ -49,11 +49,11 @@ def post_processing_pc(points_3d, images, depth_map, vggt_fixed_resolution, mask
     colors = (points_rgb.cpu().numpy() * 255).astype(np.uint8).transpose(0, 2, 3, 1)
     
     conf_mask = (depth_conf > depth_threshold)
-    mask = conf_mask & masks 
 
-    valid_depths = depth_map.squeeze(-1).copy()
-    valid_depths[~mask] = np.inf
-    valid_points = points_3d[mask]
-    valid_colors = colors[mask]
+    valid_points = points_3d[conf_mask]
+    valid_colors = colors[conf_mask]
+
+    valid_depths = depth_map.squeeze(-1).copy().astype(np.float32)
+    valid_depths[~masks] = np.inf
 
     return valid_points, valid_colors, valid_depths
