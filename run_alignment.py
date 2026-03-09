@@ -1,6 +1,6 @@
 from pathlib import Path
 import numpy as np
-from distortion_utils import get_maps_depths
+from distortion_utils import get_pm_depths
 import open3d as o3d
 import pandas as pd
 import trimesh
@@ -201,7 +201,7 @@ if __name__ == "__main__":
         frames = [f.stem for f in sorted(pm_dir.glob("*.npy"))]
         for frame in frames:
 
-            gt_pm, gt_depth, pred_pm, pred_depth = get_maps_depths(
+            gt_pm, gt_depth, pred_pm, pred_depth = get_pm_depths(
                 frame, gt_scene_path, pred_scene_path
             )
             conf = load_confidence(frame, pred_scene_path)
@@ -225,11 +225,11 @@ if __name__ == "__main__":
             all_pred_points.append(pred_pts_frame)
 
             # Visualisation
-            #show_pointmaps_comparison_o3d(
-            #    gt_pm, pred_pm_aligned, gt_depth, conf,
-            #    conf_threshold=conf_threshold,
-            #)
-
+            """show_pointmaps_comparison_o3d(
+                gt_pm, pred_pm_aligned, gt_depth, conf,
+                conf_threshold=conf_threshold,
+            )
+            """
         df_scene = pd.DataFrame(scene_data)
         s_acc = df_scene["Acc"].mean()
         s_comp = df_scene["Comp"].mean()
