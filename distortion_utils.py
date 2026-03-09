@@ -3,6 +3,9 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 import open3d as o3d
+import random
+from scipy.ndimage import maximum_filter
+import cv2
 
 # VGGT util
 from vggt.utils.geometry import unproject_depth_map_to_point_map
@@ -138,21 +141,6 @@ def load_camera_block(cameras_txt: Path, camera_id: int):
     raise FileNotFoundError(f"Camera id {camera_id} not found in {cameras_txt}")
 
 
-def load_eth3d_depth_distorted(scene_path: Path, frame_stem: str):
-    cameras_txt = scene_path / "distorded_images" / "cameras.txt"
-    images_txt = scene_path / "distorded_images" / "images.txt"
-    depth_path = scene_path / "depths" / f"{frame_stem}.JPG"
-
-    cam_id, _ = find_camera_id_for_frame(images_txt, frame_stem)
-    model, W, H, _ = load_camera_block(cameras_txt, cam_id)
-
-    data = np.fromfile(str(depth_path), dtype=np.float32)
-    if data.size != H * W:
-        raise ValueError(
-            f"Depth size mismatch for {depth_path.name}: got {data.size}, expected {H*W} (H={H}, W={W})."
-        )
-    return data.reshape((H, W)), cam_id, model
-
 
 def load_fisheye_params(scene_path: Path, frame_stem: str):
     cameras_txt = scene_path / "distorded_images" / "cameras.txt"
@@ -212,18 +200,6 @@ def scale_K_pinhole(K: np.ndarray, in_hw, out_hw) -> np.ndarray:
     return K2
 
 
-def get_depth_pred_uint8(frame_stem: str, pred_scene_path: Path) -> np.ndarray:
-    path = pred_scene_path / "depths" / f"{frame_stem}.jpg"
-    return np.array(Image.open(path))
-
-
-def get_image_518_distorted(frame_stem: str, scene_path: Path, out_h: int, out_w: int) -> np.ndarray:
-    img_path = scene_path / "undistorded_images" / "images" / f"{frame_stem}.JPG"
-    img = Image.open(img_path).convert("RGB")
-    img_ = img.resize((out_w, out_h), resample=Image.BILINEAR)
-    return np.array(img_)
-
-
 def show_triplet_side_by_side(img_518, pred_depth, gt_depth_518,
                               title_img="Image (518x518)",
                               title_pred="Pred (uint8)",
@@ -258,12 +234,6 @@ def show_triplet_side_by_side(img_518, pred_depth, gt_depth_518,
     plt.show()
 
 
-def build_undistorted_depth_and_K(scene_path: Path, frame_stem: str):
-    depth_dist, _, _ = load_eth3d_depth_distorted(scene_path, frame_stem)
-    fish_params, _, _, _ = load_fisheye_params(scene_path, frame_stem)
-    K_und, und_hw, _, _ = load_undistorted_pinhole_K(scene_path, frame_stem)
-    depth_und = undistort_depth_to_pinhole(depth_dist, K_und, und_hw, fish_params)
-    return depth_und, K_und, und_hw
 
 def pointmap_to_pointcloud(pointmap_world: np.ndarray, depth_valid: np.ndarray, eps=1e-8):
     """
@@ -276,41 +246,31 @@ def pointmap_to_pointcloud(pointmap_world: np.ndarray, depth_valid: np.ndarray, 
     return pts
 
 
-def get_pm_pred(frame, pred_scene_path) :
-    path = pred_scene_path / "pointmaps" / f"{frame}.npy"
-    pm  = np.load(path).astype(np.float32) 
-    return pm
-
-def get_maps_depths(frame, gt_scene_path, pred_scene_path) :
+def get_pm_depths(frame, gt_scene_path, pred_scene_path) :
     
     # Pred depth (uint8 image)
-    pred_depth = get_depth_pred_uint8(frame, pred_scene_path)
+    pred_depth_metric, pred_depth_vis = get_depth_pre(frame, pred_scene_path)
     pred_pm = get_pm_pred(frame, pred_scene_path)
-    out_h, out_w = pred_depth.shape[:2]  # 518,518
+    out_h, out_w = pred_depth_metric.shape[:2] 
 
-    # 1) Build undistorted GT depth + K (native undistorted resolution)
-    depth_und, K_und, und_hw = build_undistorted_depth_and_K(gt_scene_path, frame)
+    # GT depth
+    gt_depth_metric, gt_depth_vis, K_518 = get_depth_gt(frame, gt_scene_path, "undistorded_images", out_h, out_w)
 
-    # 2) Resize GT depth to 518 and scale intrinsics accordingly
-    depth_und_518 = resize_depth_keep_inf(depth_und, out_h, out_w)
-    K_518 = scale_K_pinhole(K_und, und_hw, (out_h, out_w))
-
-    # Replace inf/nan by 0 before unproject.
-    depth_und_518_for_unproj = depth_und_518.copy()
-    depth_und_518_for_unproj[~np.isfinite(depth_und_518_for_unproj)] = 0.0
-
-    # 3) Load GT extrinsics (world -> cam) for the UNDISTORTED image
+    # GT extrinsics (world -> cam) for the UNDISTORTED image
     images_txt_und = gt_scene_path / "undistorded_images" / "images.txt"
-    extr_w2c = load_extrinsics_world_to_cam(images_txt_und, frame)  # (3,4)
+    extr_w2c = load_extrinsics_world_to_cam(images_txt_und, frame)  
 
-    # 4) Unproject to WORLD points (S=1)
-    pm_gt_world = unproject_depth_map_to_point_map(
-        depth_und_518_for_unproj[None, ..., None],  # (1,H,W,1)
-        extr_w2c[None, ...],                        # (1,3,4) world->cam
-        K_518[None, ...],                           # (1,3,3)
+    depth_for_unproj = gt_depth_metric.copy()
+    depth_for_unproj[~np.isfinite(depth_for_unproj)] = 0
+
+    # Unproject to WORLD points (S=1)
+    gt_pm = unproject_depth_map_to_point_map(
+        depth_for_unproj[None, ..., None],  
+        extr_w2c[None, ...],                       
+        K_518[None, ...],                       
     )
 
-    return pm_gt_world, depth_und_518, pred_pm, pred_depth
+    return gt_pm, gt_depth_vis, pred_pm, pred_depth_vis
 
 
 def show_pointmap_o3d(pointmap, depth=None, eps=1e-8, max_points=None):
@@ -338,18 +298,186 @@ def show_pointmap_o3d(pointmap, depth=None, eps=1e-8, max_points=None):
     pcd.points = o3d.utility.Vector3dVector(pts)
     o3d.visualization.draw_geometries([pcd])
 
-# =============================
-# MAIN
-# =============================
+
+def get_pm_pred(frame, pred_scene_path) :
+    path = pred_scene_path / "pointmaps" / f"{frame}.npy"
+    pm  = np.load(path).astype(np.float32) 
+    return pm
+
+def downsample_depth_preserving(depth_hw: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
+    """
+    Downsample une depth sparse en préservant les valeurs valides.
+    Stratégie : dilation morphologique AVANT resize nearest-neighbor.
+    """
+    depth = depth_hw.copy()
+    valid = np.isfinite(depth) & (depth > 0)
+    
+    # Calcul du facteur de downscale
+    scale_h = depth_hw.shape[0] / target_h
+    scale_w = depth_hw.shape[1] / target_w
+    scale = max(scale_h, scale_w)
+    
+    # Taille du kernel = facteur de downscale (arrondi impair)
+    k = int(scale)
+    if k % 2 == 0:
+        k += 1
+    k = max(3, k)
+    
+    #print(f"  Depth originale: {depth_hw.shape}, target: ({target_h},{target_w}), kernel dilation: {k}x{k}")
+    
+    # Remplacer invalides par 0 pour la dilation
+    depth_for_dilation = depth.copy()
+    depth_for_dilation[~valid] = 0.0
+    
+    # Dilation : chaque pixel valide "s'étale" sur ses voisins
+    depth_dilated = maximum_filter(depth_for_dilation, size=k)
+    
+    # Mask de validité dilaté aussi
+    valid_dilated = maximum_filter(valid.astype(np.uint8), size=k).astype(bool)
+    
+    depth_dilated[~valid_dilated] = np.inf  # remettre invalide là où il n'y a vraiment rien
+    
+    # Resize avec nearest-neighbor (les valeurs sont maintenant "denses")
+    depth_resized = cv2.resize(
+        depth_dilated, 
+        (target_w, target_h), 
+        interpolation=cv2.INTER_NEAREST
+    )
+    
+    return depth_resized
+
+def load_depth_distorded(scene_path: Path, frame_stem: str):
+    cameras_txt = scene_path / "distorded_images" / "cameras.txt"
+    images_txt = scene_path / "distorded_images" / "images.txt"
+    depth_path = scene_path / "depths" / f"{frame_stem}.JPG"
+
+    cam_id, _ = find_camera_id_for_frame(images_txt, frame_stem)
+    model, W, H, _ = load_camera_block(cameras_txt, cam_id)
+
+    data = np.fromfile(str(depth_path), dtype=np.float32)
+    if data.size != H * W:
+        raise ValueError(
+            f"Depth size mismatch for {depth_path.name}: got {data.size}, expected {H*W} (H={H}, W={W})."
+        )
+    return data.reshape((H, W)), cam_id, model
+
+def process_depth(depth):
+    depth = depth.copy()
+    depth[~np.isfinite(depth)] = np.nan
+    valid_pixels = depth[np.isfinite(depth) & (depth > 0)]
+    vmin, vmax = np.percentile(valid_pixels, 2), np.percentile(valid_pixels, 98)
+    depth_vis = np.clip((depth - vmin) / (vmax - vmin), 0, 1)
+    return depth_vis
+
+def get_depth_gt(frame, gt_scene_path, im_type="distorded_images" ,out_h=518, out_w=518) :
+    depth_dist, _, _ = load_depth_distorded(gt_scene_path, frame)
+
+    if im_type == "distorded_images" :
+        depth_metric = downsample_depth_preserving(depth_dist, out_h, out_w)
+        depth_vis = process_depth(depth_metric)
+        return depth_metric, depth_vis, None
+    
+    elif im_type == "undistorded_images" :
+
+        fish_params, _, _, _ = load_fisheye_params(gt_scene_path, frame)
+        K_und, und_hw, _, _ = load_undistorted_pinhole_K(gt_scene_path, frame)
+        
+        depth_und = undistort_depth_to_pinhole(depth_dist, K_und, und_hw, fish_params)
+
+        depth_metric = downsample_depth_preserving(depth_und, out_h, out_w)
+        depth_vis = process_depth(depth_metric)
+
+        K_518 = scale_K_pinhole(K_und, und_hw, (out_h, out_w))
+
+        return depth_metric, depth_vis, K_518
+
+    else :
+        raise ValueError(f"im_type not recognized")
+
+def get_image(frame_stem: str, scene_path: Path, im_type: str= "undistorded_images", out_h: int=518, out_w: int=518) -> np.ndarray:
+    img_path = scene_path / im_type / "images" / f"{frame_stem}.JPG"
+    img = Image.open(img_path).convert("RGB")
+    img_ = img.resize((out_w, out_h), resample=Image.BILINEAR)
+    return np.array(img_)
+
+def get_depth_pre(frame, pred_scene_path) :
+
+    path = pred_scene_path / "depths" / f"{frame}.npy"
+    pred_depth = np.load(path)
+
+    depth = pred_depth.copy()
+    depth[~np.isfinite(depth)] = np.nan
+    valid_pixels = depth[np.isfinite(depth) & (depth > 0)]
+    vmin, vmax = np.percentile(valid_pixels, 2), np.percentile(valid_pixels, 98)
+    depth_vis = np.clip((depth - vmin) / (vmax - vmin), 0, 1)
+
+    return pred_depth, depth_vis
+
+def get_mask(frame, gt_scene_path, target_size=518) :
+    mask_path = gt_scene_path / "masks_for_images" / f"{frame}.png"
+    mask = Image.open(mask_path).convert("L")
+    width, height = mask.size
+        
+    max_dim = max(width, height)
+    left = (max_dim - width) // 2
+    top = (max_dim - height) // 2
+        
+    square_mask = Image.new("L", (max_dim, max_dim), 0)
+    square_mask.paste(mask, (left, top))
+        
+    square_mask = square_mask.resize(
+        (target_size, target_size),
+        Image.Resampling.NEAREST
+    )
+        
+    return np.array(square_mask, dtype=np.uint8)
+
 if __name__ == "__main__":
+
     dataset_path = Path("data/eth3D/")
     preds_path = Path("outputs/eth3D_local/")
 
-    scene = "office"
-    frame = "DSC_0240"
+    scenes = [s.name for s in preds_path.iterdir() if s.is_dir()]
+    selected_scenes = random.sample(scenes, 5)
 
-    gt_scene_path = dataset_path / scene
-    pred_scene_path = preds_path / scene
+    imgs = []
+    depths = []
 
-    gt_pm, gt_depth, pred_pm, pred_depth = get_gt(frame, pred_scene_path)
-    
+    fig, axes = plt.subplots(3, 5, figsize=(10, 6))
+
+    for i, scene in enumerate(selected_scenes):
+
+        gt_scene_path = dataset_path / scene
+        pred_scene_path = preds_path / scene
+
+        pred_depth_path = preds_path / scene / "depths"
+        frames = [p.stem for p in pred_depth_path.glob("*.npy")]
+        frame = random.choice(frames)
+
+        _, depth_visu_un, _= get_depth_gt(frame, gt_scene_path, im_type="undistorded_images")
+        img_gt_un = get_image(frame, gt_scene_path, im_type="undistorded_images")
+
+        mask_image = get_mask(frame, gt_scene_path)
+        _, pred_depth = get_depth_pre(frame, pred_scene_path)
+
+        axes[0, i].imshow(img_gt_un)
+        axes[0, i].set_title(scene.upper(), fontsize=8, pad=2)
+        axes[0, i].axis("off")
+
+        cmap = plt.cm.turbo.copy()
+        cmap.set_bad(color='white')
+        im = axes[1, i].imshow(depth_visu_un, cmap=cmap, vmin=0, vmax=1)
+        axes[1, i].axis("off")
+        
+        im = axes[2, i].imshow(pred_depth, cmap=cmap, vmin=0, vmax=1)
+        axes[2, i].axis("off")
+
+    plt.subplots_adjust(left=0.012, right=1, top=0.98, bottom=0, wspace=0.02, hspace=0.02)
+
+    fig.text(0.002, 0.83, "RGB IMAGE", va="center", rotation=90,
+         fontsize=8, fontweight="bold")
+    fig.text(0.002, 0.50, "GROUND TRUTH DEPTH", va="center", rotation=90,
+            fontsize=8, fontweight="bold")
+    fig.text(0.002, 0.17, "VGGT PREDICTION", va="center", rotation=90,
+            fontsize=8, fontweight="bold")
+    plt.show()
