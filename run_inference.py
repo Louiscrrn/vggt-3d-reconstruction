@@ -5,23 +5,34 @@ import numpy as np
 from pathlib import Path
 import random
 import torch
+import argparse
 
 from vggt.utils.load_fn import load_and_preprocess_images_square
 from vggt.utils.geometry import unproject_depth_map_to_point_map
-from utils import preprocess_eth3d_masks, get_device_settings, synchronize_device, get_gpu_memory_usage, empty_gpu_cache
-from vggt_ops import load_vggt_model, run_VGGT, post_processing_pc
+from scripts.utils import preprocess_eth3d_masks, get_device_settings, synchronize_device, empty_gpu_cache
+from scripts.vggt_ops import load_vggt_model, run_VGGT, post_processing_pc
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 if __name__ == "__main__":
+
+    # Arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n_frames", type=int, default=5)
+    parser.add_argument("--conf_threshold", type=float, default=1.0)
+    parser.add_argument("--dataset_path", type=str, default="data/eth3D/")
+    parser.add_argument("--outputs_path", type=str, default="outputs/eth3D_local/")
+    parser.add_argument("--checkpoint", type=str, default="models/model.pt")
+    args = parser.parse_args()
+
     # Configuration
-    checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
     img_load_resolution = 1024
-    n_frames = 5
-    depth_threshold = 1.0
-    dataset_path = Path("data/eth3D/")
-    outputs_path = Path("outputs/eth3D_local/")
+    n_frames = args.n_frames
+    depth_threshold = args.conf_threshold
+    dataset_path = Path(args.dataset_path)
+    outputs_path = Path(args.outputs_path)
+    checkpoint_path = args.checkpoint
     
     device, dtype = get_device_settings()
     print(f"Device: {device}")

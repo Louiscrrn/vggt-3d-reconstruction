@@ -4,25 +4,33 @@ import random
 import torch
 import numpy as np
 from pathlib import Path
+import argparse
 
 from vggt.utils.load_fn import load_and_preprocess_images_square
-from utils import preprocess_eth3d_masks, get_device_settings, synchronize_device, empty_gpu_cache
-from vggt_ops import load_vggt_model, run_VGGT
+from scripts.utils import preprocess_eth3d_masks, get_device_settings, synchronize_device, empty_gpu_cache
+from scripts.vggt_ops import load_vggt_model, run_VGGT
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(description="Memory testing for VGGT")
+    parser.add_argument("--checkpoint", type=str, default="models/model.pt")
+    parser.add_argument("--dataset_path", type=str, default="data/eth3D/")
+    parser.add_argument("--scene_name", type=str, default="courtyard", help="Name of the scene to test")
+    
+    args = parser.parse_args()
+
     random.seed(0)
     np.random.seed(0)
     torch.manual_seed(0)
 
-    checkpoint_path = "models/model.pt"
     vggt_fixed_resolution = 518
-    img_load_resolution = 1024
+    img_load_resolution = 1024 
 
-    dataset_path = Path("data/eth3D/")
-    scene_name = "courtyard"
+    checkpoint_path = args.checkpoint
+    dataset_path = Path(args.dataset_path)
+    scene_name = args.scene_name
     scene = dataset_path / scene_name
 
     n_frames_list = [1, 2, 4, 8, 10, 12, 14, 16, 18, 20]
