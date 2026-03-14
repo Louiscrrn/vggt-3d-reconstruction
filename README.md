@@ -168,7 +168,7 @@ Example reconstructions:
 The full analysis and discussion of the results can be found in:
 
 ```
-docs/paper.pdf
+docs/report.pdf
 ```
 
 ---
