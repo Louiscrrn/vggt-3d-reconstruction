@@ -1,11 +1,10 @@
 # VGGT – ETH3D Benchmark
 
-This repository contains a reproduction and analysis of the paper:
+This repository contains a study of the paper:
 
 [**VGGT: Visually Grounded Geometry Transformers for 3D Scene Understanding**](https://vgg-t.github.io/)
 
-The project was carried out as part of the **NPM3D course** and focuses on understanding the VGGT architecture and reproducing its evaluation pipeline on the **ETH3D dataset**.
-
+The project was carried out as part of the **NPM3D course** and focuses on analyzing the paper and reproducing the ETH3D evaluation benchmark using the official VGGT implementation.
 ---
 
 # Project Structure
