@@ -51,7 +51,7 @@ pip install -r requirements.txt
 This project includes a helper script to automatically download all required assets. Running the following command will:
 
 ```bash
-python scripts/init_env.py
+python scripts/init_env.py --token (optional)
 ```
 
 - download the **VGGT pretrained model (≈5GB)** from HuggingFace
