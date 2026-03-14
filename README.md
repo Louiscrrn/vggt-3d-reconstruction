@@ -152,9 +152,9 @@ Example reconstructions:
 
 <div align="center">
 
-<img src="docs/assets/office_pm.png" width="10%">
-<img src="docs/assets/relief_pm.png" width="10%">
-<img src="docs/assets/courtyard_pm.png" width="10%">
+<img src="docs/assets/office_pm.png" width="30%">
+<img src="docs/assets/relief_pm.png" width="30%">
+<img src="docs/assets/courtyard_pm.png" width="30%">
 
 <br>
 <em>Reconstructed point maps for Office, Relief and Courtyard scenes.</em>
